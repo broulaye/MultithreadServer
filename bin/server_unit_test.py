@@ -1078,14 +1078,16 @@ if __name__ == '__main__':
     counter = 0
     while True:
         try:
-            http_conn = httplib.HTTPConnection(hostname, port)
+            # by using the IP address returned here, we force the use of IPv4  
+            localhostname = socket.gethostbyname(socket.gethostname())
+            http_conn = httplib.HTTPConnection(localhostname, port)
             http_conn.connect()
             http_conn.close()
             break
         except:
             if counter >= 10:
                 print """
-The server is not responding to connection requests, and may not be
+The server is not responding to IPv4 connection requests, and may not be
 functioning properly.  Ensure that you sent the proper location for your
 server, and that your server starts running in a reasonable amount of time
 (this waited 5 seconds for your server to start running).
