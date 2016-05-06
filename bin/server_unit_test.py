@@ -189,8 +189,12 @@ class Single_Conn_Protocol_Case ( Doc_Print_Test_Case ):
     
             #Get the server's response
             server_response = self.http_connection.getresponse()
-
-            #Check the response status code
+	    
+	    #Check that the server did not close the connection
+	    self.assertEqual(server_response._check_close(),False,\
+		"Server closed the connection") 
+ 
+	    #Check the response status code
             self.assertEqual(server_response.status, httplib.OK, "Server failed to respond")
 
             #Check the data included in the server's response
