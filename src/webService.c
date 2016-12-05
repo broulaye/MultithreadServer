@@ -278,8 +278,8 @@ int main(int ac, char** av)
 
     if(path == NULL);
 
-    if (optind == ac)
-        usage(av[0]);
+//    if (optind == ac)
+//        usage(av[0]);
     socket = start_server(port);
     while(1) {
         client_size = sizeof(client_addr);
