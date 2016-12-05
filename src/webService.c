@@ -264,15 +264,20 @@ int main(int ac, char** av)
     struct sockaddr client_addr;
     int client_fd, socket;
     socklen_t client_size;
-    //char *path;
+    char *path;
     int c;
-    while ((c = getopt(ac, av, "p:")) != EOF) {
+    while ((c = getopt(ac, av, "p:R:")) != EOF) {
         switch (c) {
         case 'p':
             port = atoi(optarg);
             break;
+        case 'R':
+            path = optarg;
         }
     }
+
+    if(path == NULL);
+
     if (optind == ac)
         usage(av[0]);
     socket = start_server(&port);
