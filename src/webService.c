@@ -2,7 +2,7 @@
 #include "list.h"
 #include <arpa/inet.h>
 
-int start_server(short*);
+int start_server(int);
 void process_request(int);
 void usage(char*);
 void read_requesthdrs(rio_t *);
@@ -205,14 +205,14 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
     wait(NULL); /* Parent waits for and reaps child */
 }
 
-int start_server(short *port) {
+int start_server(int port) {
    int socket, optval=1;
    struct sockaddr_in server_addr;
 
 
    /* First call to socket() function */
    socket = Socket(AF_INET, SOCK_STREAM, 0);
-
+   printf("Opened socket");
    if (socket < 0) {
       perror("ERROR opening socket");
       exit(1);
@@ -260,7 +260,7 @@ void usage(char *av0) {
 
 int main(int ac, char** av)
 {
-    short port;
+    int port = 8080;
     struct sockaddr client_addr;
     int client_fd, socket;
     socklen_t client_size;
@@ -280,13 +280,13 @@ int main(int ac, char** av)
 
     if (optind == ac)
         usage(av[0]);
-    socket = start_server(&port);
+    socket = start_server(port);
     while(1) {
         client_size = sizeof(client_addr);
 
         /* Accept actual connection from the client and return client file descriptor if successful*/
         client_fd = accept(socket, (struct sockaddr *)&client_addr, &client_size);
-
+        printf("Connection made");
         if (client_fd < 0) {
            perror("ERROR accept");
            exit(1);
