@@ -5,14 +5,14 @@ CFLAGS=-Wall -O3 -Werror -Wmissing-prototypes -fopenmp -std=gnu11
 
 LDLIBS=-lpthread -lrt
 
-OBJ=list.o csapp.o
+OBJ=list.o csapp.o loadavg.o meminfo.o
 
-ALL=webService
+ALL=sysstatd
 
 all: $(ALL)
 
-webService: webService.o $(OBJ)
-	gcc $(CFLAGS) -o sysstatd webService.o $(OBJ) $(LDLIBS)
+sysstatd: sysstatd.o $(OBJ)
+	gcc $(CFLAGS) -o sysstatd sysstatd.o $(OBJ) $(LDLIBS)
 	
 clean:
 	rm -f *.o $(ALL)
