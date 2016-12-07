@@ -12,48 +12,65 @@ typedef int bool;
 void process_request(int);
 //void usage(char*);
 void read_requesthdrs(rio_t *);
-void parse_uri(char *, char *, char *);
-void serve_static(int,char *, int, char *);
+void parse_uri(char *, char *, char *, char *, int);
+void serve_static(int,char *, int, char *, char *);
 void get_filetype(char *, char *);
 void serve_dynamic(int, char *, char *);
-void clienterror(int, char *, char *,char *, char *);
-void serve_header(int, char *, int);
+void clienterror(int, char *, char *,char *, char *, char *);
+void serve_header(int, char *, int, char *);
+void serve_bad_method_header(int, char *);
+void file_not_found(int, char *);
 static bool isCallBack;
-static char version[MAXLINE];
+static bool badRequest;
+
 void process_request(int client_fd) {
     //int is_static;
     struct stat sbuf;
     struct stat sbuf2;
-    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE];
+    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char filename[MAXLINE], cgiargs[MAXLINE];
     rio_t rio;
+
     isCallBack = false;
     /** Read request line and headers */
     Rio_readinitb(&rio, client_fd);
-    if (!Rio_readlineb(&rio, buf, MAXLINE))  //line:netp:doit:readrequest
+    if (!Rio_readlineb(&rio, buf, MAXLINE)) {
         return;
+    }
+
     printf("%s\n", buf);
     sscanf(buf, "%s %s %s", method, uri, version);
 
     if (strcasecmp(method, "GET")) {
-        clienterror(client_fd, method, "501", "Not Implemented",
-            "Tiny does not implement this method");
+        serve_bad_method_header(client_fd, version);
+//        clienterror(client_fd, method, "501", "NOT IMPLEMENTED",
+//            "Tiny does not implement this method", version);
         return;
     }
 
     read_requesthdrs(&rio);
+    if(uri == NULL) {
+        file_not_found(client_fd, version);
+        return;
+    }
 
+    badRequest = false;
 
     /** Parse URI from GET request */
-    parse_uri(uri, filename, cgiargs);
+    parse_uri(uri, filename, cgiargs, version, client_fd);
+    if(badRequest) {
+        printf("Bad Request is true");
+        return;
+    }
     if (stat(filename, &sbuf) < 0) {
-        clienterror(client_fd, filename, "404", "Not found",
-            "Tiny couldn’t find this file");
+        file_not_found(client_fd, version);
+//        clienterror(client_fd, filename, "404", "Not found",
+//            "Tiny couldn’t find this file", version);
         return;
     }
     if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {/**Verify that file is executable and we have read permission*/
             clienterror(client_fd, filename, "403", "Forbidden",
-                "Tiny couldn’t run the CGI program");
+                "Tiny couldn’t run the CGI program", version);
             return;
     }
 
@@ -66,23 +83,25 @@ void process_request(int client_fd) {
 	if(strstr(filename, "/proc/loadavg")) {
 	    getLoadAvg();
             if (stat("loadavg.txt", &sbuf2) < 0) {
-                clienterror(client_fd, filename, "404", "Not found",
-                    "Tiny couldn’t find this file");
+                file_not_found(client_fd, version);
+//                clienterror(client_fd, filename, "404", "Not found",
+//                    "Tiny couldn’t find this file", version);
                 return;
             }
 	    //serve_header(client_fd, filename, sbuf.st_size);
-            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs);
+            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version);
 
 	}
 	else if(strstr(filename, "/proc/meminfo")) {
 	    getMemInfo();
             if (stat("meminfo.txt", &sbuf2) < 0) {
-                clienterror(client_fd, filename, "404", "Not found",
-                    "Tiny couldn’t find this file");
+                file_not_found(client_fd, version);
+//                clienterror(client_fd, filename, "404", "Not found",
+//                    "Tiny couldn’t find this file", version);
                 return;
             }
 	    //serve_header(client_fd, filename, sbuf.st_size);
-            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs);
+            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version);
 	}
 	else {
 	    /**Not implementing other files yet*/
@@ -94,22 +113,24 @@ void process_request(int client_fd) {
         if(strstr(filename, "/proc/loadavg")) {
             getLoadAvg();
             if (stat("loadavg.txt", &sbuf2) < 0) {
-                clienterror(client_fd, filename, "404", "Not found",
-                    "Tiny couldn’t find this file");
+                file_not_found(client_fd, version);
+//                clienterror(client_fd, filename, "404", "Not found",
+//                    "Tiny couldn’t find this file", version);
                 return;
             }
 
-            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs);
+            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version);
 
         }
         else if(strstr(filename, "/proc/meminfo")) {
             getMemInfo();
             if (stat("meminfo.txt", &sbuf2) < 0) {
-                clienterror(client_fd, filename, "404", "Not found",
-                    "Tiny couldn’t find this file");
+                file_not_found(client_fd, version);
+//                clienterror(client_fd, filename, "404", "Not found",
+//                    "Tiny couldn’t find this file", version);
                 return;
             }
-            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs);
+            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version);
         }
         else {
             /**Not implementing other files yet*/
@@ -120,7 +141,16 @@ void process_request(int client_fd) {
 
 
 
-void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) {
+void file_not_found(int fd, char *version) {
+    char buf[MAXBUF];
+    /* Send response headers to client */
+    sprintf(buf, "%s 404 Not Found\r\n", version);
+    sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+    sprintf(buf, "%sContent-length: %d\r\n", buf, 0);
+    Rio_writen(fd, buf, strlen(buf));
+}
+
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg, char *version) {
     char buf[MAXLINE], body[MAXBUF];
 
     /* Build the HTTP response body */
@@ -131,7 +161,7 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     sprintf(body, "%s<hr><em>The Tiny Web server</em>\r\n", body);
 
     /* Print the HTTP response */
-    sprintf(buf, "HTTP/1.0 %s %s\r\n", errnum, shortmsg);
+    sprintf(buf, "%s %s %s\r\n", errnum, shortmsg, version);
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Content-type: text/html\r\n");
     Rio_writen(fd, buf, strlen(buf));
@@ -153,12 +183,14 @@ void read_requesthdrs(rio_t *rp) {
 }
 
 
-void parse_uri(char *uri, char *filename, char *cgiargs)
+void parse_uri(char *uri, char *filename, char *cgiargs, char *version, int client_fd)
 {
+    badRequest = false;
     char *ptr;
     char *ptr2;
     char *f1 = strstr(uri, "/loadavg");
     char *f2 = strstr(uri, "/meminfo");
+
     if (f1 || f2) { /* Dynamic content */
 	printf("got the loadavg string\n");
         ptr = index(uri, '?');
@@ -178,10 +210,18 @@ void parse_uri(char *uri, char *filename, char *cgiargs)
 		}
 		else {
 		    /**ERROR!!!*/
+		    clienterror(client_fd, uri, "400", "Bad Request",
+                    "Your browser sent a request this server could not understand", version);
+            badRequest = true;
+            return;
 		}
 	    }
 	    else {
-		/**Maybe error*/
+            /**Maybe error
+            clienterror(client_fd, uri, "400", "Bad Request",
+                    "Your browser sent a request this server could not understand", version);
+            badRequest = true;
+            return;*/
 	    }
         }
         else {
@@ -199,11 +239,15 @@ void parse_uri(char *uri, char *filename, char *cgiargs)
 	}
         //return 0;
     }
+    else {
+        /**Other files*/
+
+    }
 }
 
 
 
-void serve_static(int fd, char *filename, int filesize, char *cgiargs)
+void serve_static(int fd, char *filename, int filesize, char *cgiargs, char *version)
 {
     int srcfd;
     char *srcp;
@@ -215,7 +259,7 @@ void serve_static(int fd, char *filename, int filesize, char *cgiargs)
     if(isCallBack) {
 	filesize = filesize + 2 + strlen(cgiargs);
     }
-    serve_header(fd, filename, filesize);
+    serve_header(fd, filename, filesize, version);
     if(isCallBack) {
 	 strcat(cgiargs, "(");
 	 Rio_writen(fd, cgiargs, strlen(cgiargs));
@@ -227,7 +271,7 @@ void serve_static(int fd, char *filename, int filesize, char *cgiargs)
     }
 }
 
-void serve_header(int fd, char *filename, int filesize) {
+void serve_header(int fd, char *filename, int filesize, char *version) {
     char filetype[MAXLINE], buf[MAXBUF];
     /* Send response headers to client */
     get_filetype(filename, filetype);
@@ -237,6 +281,17 @@ void serve_header(int fd, char *filename, int filesize) {
     sprintf(buf, "%sContent-type: %s\r\n\r\n", buf, filetype);
     Rio_writen(fd, buf, strlen(buf));
 }
+
+void serve_bad_method_header(int fd, char *version) {
+    char buf[MAXBUF];
+    /* Send response headers to client */
+    sprintf(buf, "%s 501 NOT IMPLEMENTED\r\n", version);
+    sprintf(buf, "%sServer: Tiny Web Server\r\n", buf);
+    sprintf(buf, "%sContent-length: %d\r\n", buf, 0);
+    Rio_writen(fd, buf, strlen(buf));
+}
+
+
 
 /*
  * *get_filetype - derive file type from file name
@@ -274,14 +329,7 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
 
 
 
-/** Much of this method is heavily based on the main method for a server found on
-=======
-#define DEFAULT_PORT "13011"
 
-/** Much of this method is heavily based on the main method for a server found on
->>>>>>> 4baff8905cfb8d43745b8fe56a871fb177a762b4
- * www.akkadia.org/dreppper/userapi-ipv6.html
- * which was linked in the project spec */
 int main(int ac, char **av) {
 	char *port = DEFAULT_PORT;
 	char *path;
@@ -303,7 +351,8 @@ int main(int ac, char **av) {
 	memset(&hints, '\0', sizeof(hints));
 	hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG | AI_NUMERICSERV;
 	hints.ai_socktype = SOCK_STREAM;
-
+    hints.ai_family = AF_INET6;
+    hints.ai_protocol = 0;
 	int e = getaddrinfo(NULL, port, &hints, &ai);
 	if (e != 0)
 		error(EXIT_FAILURE, 0, "getaddrinf0: %s", gai_strerror(e));
