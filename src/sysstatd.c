@@ -275,11 +275,17 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
 
 
 /** Much of this method is heavily based on the main method for a server found on
+=======
+#define DEFAULT_PORT "13011"
+
+/** Much of this method is heavily based on the main method for a server found on
+>>>>>>> 4baff8905cfb8d43745b8fe56a871fb177a762b4
  * www.akkadia.org/dreppper/userapi-ipv6.html
  * which was linked in the project spec */
 int main(int ac, char **av) {
 	char *port = DEFAULT_PORT;
 	char *path;
+
 
 	int c;
 	while ((c = getopt(ac, av, "p:R:")) != EOF) {
@@ -304,6 +310,7 @@ int main(int ac, char **av) {
 
 
     printf("%s\n", port);
+
 	struct addrinfo *runp = ai;
 	int nfds = 0;
 	while (runp != NULL) {
@@ -314,6 +321,7 @@ int main(int ac, char **av) {
 	for (nfds = 0, runp = ai; runp != NULL; runp = runp->ai_next) {
 		fds[nfds].fd = socket(runp->ai_family, runp->ai_socktype, runp->ai_protocol);
 		if (fds[nfds].fd == -1)
+
 			error(EXIT_FAILURE, errno, "socket");
 
 		fds[nfds].events = POLLIN;

@@ -3,6 +3,7 @@
 void getLoadAvg() {
 	FILE *loadavg = fopen("/proc/loadavg", "r");
 	FILE *output = fopen("loadavg.txt", "w");
+
 	if (output == NULL || loadavg == NULL) {
 		fprintf(stderr, "Unable to open file\n");
 		return;
@@ -21,4 +22,5 @@ void getLoadAvg() {
 	//printf("%f\n", loadavg_num1);
 	fprintf(output, "{\"total_threads\": \"%d\", \"loadavg\": [\"%0.2f\", \"%0.2f\", \"%0.2f\"], \"running_threads\": \"%d\"}", total_thread_num, loadavg_num1, loadavg_num2, loadavg_num3, running_thread_num);
 fclose(output);
+
 }

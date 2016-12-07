@@ -26,4 +26,5 @@ void getMemInfo() {
 
 	fclose(meminfo);
 	fclose(output);
+
 }
