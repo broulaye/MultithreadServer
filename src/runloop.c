@@ -1,15 +1,18 @@
 #include "runloop.h"
+#include <stdio.h>
 
 void runloop() {
-	int iter = 0;
 	int terminate = 1;
+	time_t start, end;
+	start = time(&start);
 	while (terminate) {
-		if (iter >= 15) {
+		end = time(&end);
+		if (difftime(end, start) >= 15.0)
 			terminate = 0;
-		}
-		else {
-			iter++;
-			sleep(1);
-		}
 	}
+}
+
+int main (int ac, char** av) {
+	runloop();
+	printf("done looping\n");
 }
