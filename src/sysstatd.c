@@ -3,139 +3,168 @@
 #include "csapp.h"
 #include "loadavg.h"
 #include "meminfo.h"
-
+#include <pthread.h>
+#include <regex.h>
 #define DEFAULT_PORT "11900"
 typedef int bool;
 #define true 1
 #define false 0
 
-void process_request(int);
+void process_request(int, char *);
 //void usage(char*);
 void read_requesthdrs(rio_t *);
-void parse_uri(char *, char *, char *, char *, int);
-void serve_static(int,char *, int, char *, char *);
+bool parse_uri(char *, char *, char *, char *, int, char *, char *);
+void serve_static(int,char *, int, char *, char *, bool);
 void get_filetype(char *, char *);
 void serve_dynamic(int, char *, char *);
 void clienterror(int, char *, char *,char *, char *, char *);
 void serve_header(int, char *, int, char *);
 void serve_bad_method_header(int, char *);
 void file_not_found(int, char *);
-static bool isCallBack;
-static bool badRequest;
+bool isValid(char *, char *);
+void serve_file(int, char *, int, char *);
+//static bool isCallBack;
+//static bool badRequest;
+void *do_work(void *);
+pthread_mutex_t globalLock;
+pthread_mutex_t badRequestLock;
 
-void process_request(int client_fd) {
+struct client_struct
+{
+    int client_fd;
+    char *path;
+};
+
+
+void process_request(int client_fd, char *path) {
     //int is_static;
     struct stat sbuf;
+    bool isCallBack;
     struct stat sbuf2;
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-    char filename[MAXLINE], cgiargs[MAXLINE];
+    char filename[MAXLINE], cgiargs[MAXLINE], badRequest[MAXLINE];
     rio_t rio;
-
+    //strcpy(badRequest, "false");
     isCallBack = false;
     /** Read request line and headers */
     Rio_readinitb(&rio, client_fd);
-    if (!Rio_readlineb(&rio, buf, MAXLINE)) {
-        return;
-    }
+    while(true) {
+        if (Rio_readlineb(&rio, buf, MAXLINE) <= 0) {
+                return;
+        }
 
-    printf("%s\n", buf);
-    sscanf(buf, "%s %s %s", method, uri, version);
+        printf("%s\n", buf);
+        if(sscanf(buf, "%s %s %s", method, uri, version) != 3) {
+                return;
+        }
 
-    if (strcasecmp(method, "GET")) {
-        serve_bad_method_header(client_fd, version);
-//        clienterror(client_fd, method, "501", "NOT IMPLEMENTED",
-//            "Tiny does not implement this method", version);
-        return;
-    }
+        if (strcasecmp(method, "GET")) {
+            serve_bad_method_header(client_fd, version);
 
-    read_requesthdrs(&rio);
-    if(uri == NULL) {
-        file_not_found(client_fd, version);
-        return;
-    }
-
-    badRequest = false;
-
-    /** Parse URI from GET request */
-    parse_uri(uri, filename, cgiargs, version, client_fd);
-    if(badRequest) {
-        printf("Bad Request is true");
-        return;
-    }
-    if (stat(filename, &sbuf) < 0) {
-        file_not_found(client_fd, version);
-//        clienterror(client_fd, filename, "404", "Not found",
-//            "Tiny couldn’t find this file", version);
-        return;
-    }
-    if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {/**Verify that file is executable and we have read permission*/
-            clienterror(client_fd, filename, "403", "Forbidden",
-                "Tiny couldn’t run the CGI program", version);
             return;
-    }
+        }
 
-    //serve_header(client_fd, filename, sbuf.st_size);
+        read_requesthdrs(&rio);
+        if(uri == NULL) {
+            file_not_found(client_fd, version);
+            return;
+        }
 
 
-    if (!isCallBack) { /* Not CallBack */
-        //serve_dynamic(client_fd, filename, cgiargs);
-        printf("%s\n", filename);
-	if(strstr(filename, "/proc/loadavg")) {
-	    getLoadAvg();
-            if (stat("loadavg.txt", &sbuf2) < 0) {
-                file_not_found(client_fd, version);
-//                clienterror(client_fd, filename, "404", "Not found",
-//                    "Tiny couldn’t find this file", version);
+        /** Parse URI from GET request */
+        isCallBack = parse_uri(uri, filename, cgiargs, version, client_fd, path, badRequest);
+        if(strcasecmp(badRequest, "true") == 0) {
+            printf("Bad Request is true");
+            file_not_found(client_fd, version);
+            return;
+        }
+        printf("Filname: %s\n", filename);
+        if (stat(filename, &sbuf) < 0) {
+            printf("Couldn't find file: %s\n", filename);
+            file_not_found(client_fd, version);
+
+            return;
+        }
+        if (!(S_ISREG(sbuf.st_mode)) || !(S_IRUSR & sbuf.st_mode)) {/**Verify that file is executable and we have read permission*/
+                clienterror(client_fd, filename, "403", "Forbidden",
+                    "Tiny couldn’t run the CGI program", version);
                 return;
-            }
-	    //serve_header(client_fd, filename, sbuf.st_size);
-            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version);
+        }
 
-	}
-	else if(strstr(filename, "/proc/meminfo")) {
-	    getMemInfo();
-            if (stat("meminfo.txt", &sbuf2) < 0) {
-                file_not_found(client_fd, version);
-//                clienterror(client_fd, filename, "404", "Not found",
-//                    "Tiny couldn’t find this file", version);
-                return;
-            }
-	    //serve_header(client_fd, filename, sbuf.st_size);
-            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version);
-	}
-	else {
-	    /**Not implementing other files yet*/
-	}
 
-    }
-    else {/* CallBack */
-	printf("%s\n", filename);
+
+
+        if (!isCallBack) { /* Not CallBack */
+            printf("%s\n", filename);
         if(strstr(filename, "/proc/loadavg")) {
             getLoadAvg();
-            if (stat("loadavg.txt", &sbuf2) < 0) {
-                file_not_found(client_fd, version);
-//                clienterror(client_fd, filename, "404", "Not found",
-//                    "Tiny couldn’t find this file", version);
-                return;
-            }
+                if (stat("loadavg.txt", &sbuf2) < 0) {
+                    file_not_found(client_fd, version);
 
-            serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version);
+                    return;
+                }
+
+                serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version, isCallBack);
 
         }
         else if(strstr(filename, "/proc/meminfo")) {
             getMemInfo();
-            if (stat("meminfo.txt", &sbuf2) < 0) {
-                file_not_found(client_fd, version);
-//                clienterror(client_fd, filename, "404", "Not found",
-//                    "Tiny couldn’t find this file", version);
-                return;
-            }
-            serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version);
+                if (stat("meminfo.txt", &sbuf2) < 0) {
+                    file_not_found(client_fd, version);
+                    return;
+                }
+                serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version, isCallBack);
         }
         else {
             /**Not implementing other files yet*/
+            if (stat(filename, &sbuf2) < 0) {
+                file_not_found(client_fd, version);
+                return;
+            }
+            serve_file(client_fd, filename, sbuf2.st_size, version);
         }
 
+        }
+        else {/* CallBack */
+            printf("%s\n", filename);
+            if(strstr(filename, "/proc/loadavg")) {
+                getLoadAvg();
+                if (stat("loadavg.txt", &sbuf2) < 0) {
+                    file_not_found(client_fd, version);
+    //                clienterror(client_fd, filename, "404", "Not found",
+    //                    "Tiny couldn’t find this file", version);
+                    return;
+                }
+
+                serve_static(client_fd, "loadavg.txt", sbuf2.st_size, cgiargs, version, isCallBack);
+
+            }
+            else if(strstr(filename, "/proc/meminfo")) {
+                getMemInfo();
+                if (stat("meminfo.txt", &sbuf2) < 0) {
+                    file_not_found(client_fd, version);
+    //                clienterror(client_fd, filename, "404", "Not found",
+    //                    "Tiny couldn’t find this file", version);
+                    return;
+                }
+                serve_static(client_fd, "meminfo.txt", sbuf2.st_size, cgiargs, version, isCallBack);
+            }
+            else {
+                /**Not implementing other files yet*/
+                if (stat(filename, &sbuf2) < 0) {
+                    file_not_found(client_fd, version);
+    //                clienterror(client_fd, filename, "404", "Not found",
+    //                    "Tiny couldn’t find this file", version);
+                    return;
+                }
+                serve_file(client_fd, filename, sbuf2.st_size, version);
+            }
+
+        }
+        printf("Version: %s\n",version);
+        if(strcasecmp(version, "HTTP/1.0") == 0){
+            return;
+        }
     }
 }
 
@@ -183,71 +212,176 @@ void read_requesthdrs(rio_t *rp) {
 }
 
 
-void parse_uri(char *uri, char *filename, char *cgiargs, char *version, int client_fd)
+bool parse_uri(char *uri, char *filename, char *cgiargs, char *version, int client_fd, char *path, char *badRequest)
 {
-    badRequest = false;
+
+    strcpy(badRequest, "false");
+
+    bool isCallBack = false;
     char *ptr;
     char *ptr2;
-    char *f1 = strstr(uri, "/loadavg");
-    char *f2 = strstr(uri, "/meminfo");
+    char *f1 = strstr(uri, "..");
+    if(f1) {
+        strcpy(badRequest, "true");
+        return isCallBack;
+    }
 
+    f1 = strstr(uri, "/loadavg");
+    char *f2 = strstr(uri, "/meminfo");
+    printf("Uri: %s\n", uri);
     if (f1 || f2) { /* Dynamic content */
-	printf("got the loadavg string\n");
-        ptr = index(uri, '?');
-        if (ptr) {
-	    ptr2 = strstr(uri, "callback");
-	    if(ptr2) {
-		ptr = index(ptr2, '=');
-		if(ptr) {
-		    ptr = index(ptr2, '&');
-		    if(ptr) {
-			*ptr = '\0';
-		    }
-		    ptr = index(ptr2, '=');
-		    strcpy(cgiargs, ptr+1);
-		    *ptr = '\0';
-		    isCallBack = true;
-		}
-		else {
-		    /**ERROR!!!*/
-		    clienterror(client_fd, uri, "400", "Bad Request",
-                    "Your browser sent a request this server could not understand", version);
-            badRequest = true;
-            return;
-		}
-	    }
-	    else {
-            /**Maybe error
-            clienterror(client_fd, uri, "400", "Bad Request",
-                    "Your browser sent a request this server could not understand", version);
-            badRequest = true;
-            return;*/
-	    }
+        printf("Maybe Dynamic\n");
+        if(f1){/**get pointer to character after loadavg*/
+            ptr = f1 + 8;
+            ptr2 = f1 - 1;
         }
         else {
-	    isCallBack = false;
-	    strcpy(cgiargs, "");
-	}
-            //strcpy(cgiargs, "");
-        strcpy(filename, "/proc");
-        //strcat(filename, uri);
-        if(f1) {
-	    strcat(filename, "/loadavg");
-	}
-	else {
-	    strcat(filename, "/meminfo");
-	}
-        //return 0;
-    }
-    else {
-        /**Other files*/
+            ptr = f2 + 8;
+            ptr2 = f2 - 1;
+        }
+        printf("Pointer 1: %s\n", ptr);
+        if(*ptr2) {/**Bad request*/
+            strcpy(badRequest, "true");
+            printf("Pointer 2: %s\n", ptr2);
+            return isCallBack;
+        }
+        if(*ptr == '/') {/**Bad request*/
+            strcpy(badRequest, "true");
+            return isCallBack;
+        }
+        else if(*ptr == '?') {/**CallBack*/
+            ptr = ptr + 1;
+            if(!*ptr) {/**no CallBack value*/
+                printf("No CallBack Value\n");
+                ptr = ptr - 1;
+                *ptr = '\0';
+                strcpy(cgiargs, "");
+                isCallBack = true;
+                strcpy(filename, "/proc");
+                strcat(filename, uri);
+                return isCallBack;
+            }
+            else {
+                bool isvalid = isValid(ptr, cgiargs);
+                printf("callback value: %s\n", cgiargs);
+                if(isvalid) {
+                    strcpy(filename, "/proc");
+                    if(f1) {
+                        strcat(filename, "/loadavg");
+                    }
+                    else {
+                        strcat(filename, "/meminfo");
+                    }
+                    isCallBack = true;
+                    return isCallBack;
+                }
+                else {
+                    if(strstr(cgiargs, "validReq")) {
+                        strcpy(filename, "/proc");
+                        if(f1) {
+                            strcat(filename, "/loadavg");
+                        }
+                        else {
+                            strcat(filename, "/meminfo");
+                        }
+                        isCallBack = false;
+                        return isCallBack;
+                    }
+                    strcpy(badRequest, "true");
+                    return isCallBack;
+                }
+            }
+        }
+        else if(!*ptr) {/**Not callback return dynamic value*/
+            strcpy(filename, "/proc");
+            strcat(filename, uri);
+            return isCallBack;
+        }
+        else {/**append path and look for filename*/
+//            strcpy(filename, "~/");
+//            strcat(filename, path);
+//            strcat(filename, uri);
+            strcpy(filename, path);
+            strcat(filename, uri);
+            return isCallBack;
+        }
 
+    }
+
+    else {/**append path and look for filename*/
+//        strcpy(filename, "~/");
+//        strcat(filename, path);
+//        strcat(filename, uri);
+        strcpy(filename, path);
+        strcat(filename, uri);
+        return isCallBack;
     }
 }
 
+bool isValid(char *ptr, char *cgiargs) {
+    bool valid = false;
+    char *charPtr1;
+    char *charPtr2;
+    char *strPtr;
+    const char *s = "&";
+    char *token;
+    /* get the first token */
+   token = strtok(ptr, s);
 
+   /* walk through other tokens */
+   while( token != NULL )
+   {
+      printf( "Token: %s\n", token );
+      strPtr = strstr(token, "callback");
+      printf( "strPtr: %s\n", strPtr );
+      if(strPtr) {
+        charPtr1 = strPtr - 1;
+        printf( "value before callback: %s\n", charPtr1 );
+        if(!*charPtr1 || *charPtr1 == '?') {
+            charPtr2 = strPtr + 8;
+            printf( "value after callback: %s\n", charPtr2 );
+            if(*charPtr2 == '=') {
+                valid = true;
+                charPtr2 = charPtr2 + 1;
+                printf( "callback value!: %s\n", charPtr2 );
+                //cgiargs = charPtr2;
+                strcpy(cgiargs, charPtr2);
+                break;
+            }
+        }
+        else{
+            strPtr = strstr(token, "=");
+            if(!strPtr) {
+                printf( "callback value!: %s\n", token );
+                valid = true;
+                strcpy(cgiargs, token);
+                break;
+            }
+            printf( "callback value!: %s\n", token );
+            valid = false;
+            strcpy(cgiargs, "validReq");
+        }
+      }
+      else{
+        strPtr = strstr(token, "=");
+        if(!strPtr) {
+            printf( "callback value!: %s\n", token );
+            valid = true;
+            strcpy(cgiargs, token);
+            break;
+        }
+         printf( "value!: %s\n", token );
+         valid = false;
+         strcpy(cgiargs, "validReq");
 
-void serve_static(int fd, char *filename, int filesize, char *cgiargs, char *version)
+      }
+      token = strtok(NULL, s);
+   }
+   printf("callback value: %s\n", cgiargs);
+   return valid;
+}
+
+void serve_static(int fd, char *filename, int filesize, char *cgiargs, char *version, bool isCallBack)
 {
     int srcfd;
     char *srcp;
@@ -269,6 +403,18 @@ void serve_static(int fd, char *filename, int filesize, char *cgiargs, char *ver
     if(isCallBack) {
 	Rio_writen(fd, buf2, strlen(buf2));
     }
+}
+
+
+void serve_file(int fd, char *filename, int filesize, char *version) {
+    int srcfd;
+    char *srcp;
+    srcfd = Open(filename, O_RDONLY, 0);
+    srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    close(srcfd);
+    serve_header(fd, filename, filesize, version);
+    Rio_writen(fd, srcp, filesize);
+    Munmap(srcp, filesize);
 }
 
 void serve_header(int fd, char *filename, int filesize, char *version) {
@@ -327,13 +473,32 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
     wait(NULL); /* Parent waits for and reaps child */
 }
 
+void *do_work(void *value)
+{
 
+    //detach the thread so that when terminated the kernel reaps automatically
+    pthread_detach(pthread_self());
+    //retrieve arguments
+    struct client_struct *args = (struct client_struct *) value;
+
+    process_request(args->client_fd, args->path);
+
+    close(args->client_fd);
+    free(value);
+
+    return NULL;
+}
 
 
 int main(int ac, char **av) {
-	char *port = DEFAULT_PORT;
-	char *path;
 
+	char *port = DEFAULT_PORT;
+	char *path = "./";
+	pthread_t newthread;
+    pthread_mutex_init(&globalLock, NULL);
+    pthread_mutex_init(&badRequestLock, NULL);
+    pthread_attr_t atr;
+    pthread_attr_init(&atr);
 
 	int c;
 	while ((c = getopt(ac, av, "p:R:")) != EOF) {
@@ -383,7 +548,7 @@ int main(int ac, char **av) {
 
 			close(fds[nfds].fd);
 		} else {
-			if (listen(fds[nfds].fd, SOMAXCONN) != 0)
+			if (listen(fds[nfds].fd, 8) != 0)
 				error(EXIT_FAILURE, errno, "listen");
 			nfds++;
 		}
@@ -408,13 +573,26 @@ int main(int ac, char **av) {
 						//char buf[1024];
 						//ssize_t l = rio_readn(fd, buf, sizeof(buf));
 						/* Parse and handle client requests */
-						process_request(fd);
+
+						struct client_struct *client = Malloc(sizeof(struct client_struct));
+						client->client_fd = fd;
+						client->path = path;
+
+						if (pthread_create(&newthread , &atr, do_work, client) != 0){
+                           perror("pthread_create");
+                         }
 						//rio_writen(fd, buf, l);
 						/* Send result to client, potentially with sendfile(1) */
-						close(fd);
+						//close(fd);
+					}
+					else {
+                        exit(EXIT_FAILURE);
 					}
 				}
 			}
 		}
+		pthread_mutex_destroy(&globalLock);
+		pthread_mutex_destroy(&badRequestLock);
 	}
 }
+

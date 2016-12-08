@@ -1,1 +1,1 @@
-{"total_threads": "853", "loadavg": ["0.05", "0.03", "2.16"], "running_threads": "1"}
+{"total_threads": "948", "loadavg": ["0.03", "0.04", "0.31"], "running_threads": "1"}
