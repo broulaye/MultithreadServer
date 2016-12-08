@@ -7,7 +7,7 @@ typedef struct {
 
 void allocanon(struct list *l) {
 	block b;
-	b.addr = mmap(NULL, BLOCK_SIZE, PROT_NONE, MAP_ANONYMOUS, -1, 0);
+	b.addr = mmap(NULL, BLOCK_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS, -1, 0);
 	list_push_front(l, &b.el);
 }
 
