@@ -1,0 +1,4 @@
+Peter Maurer - pdman13
+Broulaye Doumbia - broulaye
+
+We based our implementation heavily on the IPv6 guide on akkadia.org linked in the project spec. Once we had connecting working we simply added code to parse requests from the client and respond accordingly. The functions to handdle specific requests were placed into seperate c files for modularity, while serving files was implemented in the main file. 
